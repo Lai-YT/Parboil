@@ -7,11 +7,11 @@ import sys
 def checkout_dataset():
   import os
   if not os.path.exists("datasets"):
-    import urllib
-    print "Datasets are being downloaded and installed. It will take a few minutes."
+    import urllib.request, urllib.parse, urllib.error
+    print("Datasets are being downloaded and installed. It will take a few minutes.")
     url = "https://bitbucket.org/hwuligans/public/downloads/datasets.tar.bz2"
     datafile = "datasets.tar.bz2"
-    urllib.urlretrieve (url, datafile)
+    urllib.request.urlretrieve (url, datafile)
 
     import os
     import tarfile
@@ -24,7 +24,7 @@ def checkout_dataset():
       elif path.endswith('.tar.bz2') or path.endswith('.tbz'):
         opener, mode = tarfile.open, 'r:bz2'
       else: 
-        raise ValueError, "Could not extract `%s` as no appropriate extractor is found" % path
+        raise ValueError("Could not extract `%s` as no appropriate extractor is found" % path)
       
       cwd = os.getcwd()
       os.chdir(to_directory)
@@ -37,7 +37,7 @@ def checkout_dataset():
         os.chdir(cwd)
 
     extract_file(datafile)
-    print "Done. You may delete %s." % datafile
+    print("Done. You may delete %s." % datafile)
 
 try:
   checkout_dataset()

@@ -6,10 +6,10 @@ import os
 import os.path as path
 import string
 import stat
-import parboilfile as pbf
-from itertools import imap, ifilter, chain
+from . import parboilfile as pbf
+from itertools import chain
 
-import globals
+from . import globals
 
 #def scan_for_benchmarks():
 #    """Returns a file scanner for the benchmarks directory repository to find
@@ -130,7 +130,7 @@ def makefile(target=None, action=None, filepath=None, env={}):
                 # Error
                 return False
     else:
-        raise ValueError, "invalid action"
+        raise ValueError("invalid action")
 
     # Pass the target as the second argument
     if target: args.append(target)
@@ -141,13 +141,13 @@ def makefile(target=None, action=None, filepath=None, env={}):
         args.append(filepath)
 
     # Pass variables
-    for (k,v) in env.iteritems():
+    for (k,v) in env.items():
         args.append(k + "=" + v)
 
     # Print a status message, if running in verbose mode
     if globals.verbose:
 
-        print "Running '" + " ".join(map(enquote_shell, args)) + "' in " + os.getcwd()
+        print("Running '" + " ".join(map(enquote_shell, args)) + "' in " + os.getcwd())
 
     # Run the makefile and return result info
     return run()
@@ -161,11 +161,11 @@ def spawnwaitv(prog, args):
 
     # Print a status message if running in verbose mode
     if globals.verbose:
-        print "Running '" + " ".join(args) + "' in " + os.getcwd()
+        print("Running '" + " ".join(args) + "' in " + os.getcwd())
 
     # Check that the program is runnable
     if not os.access(prog, os.X_OK):
-        raise OSError, "Cannot execute '" + prog + "'"
+        raise OSError("Cannot execute '" + prog + "'")
 
     # Run the program
     return os.spawnve(os.P_WAIT, prog, args, env)

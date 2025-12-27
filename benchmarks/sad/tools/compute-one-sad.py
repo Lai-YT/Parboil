@@ -9,7 +9,8 @@
 import binaryfilecompare as bfc
 
 class Img:
-    def __init__(self, (w, h), d):
+    def __init__(self, wh, d):
+        (w, h) = wh
         self.width = w
 	self.height = h
 	self.data = d
@@ -36,10 +37,10 @@ def pixdif(x, y, xoff, yoff):
 # Compute 4x4 SADs for this search offset in the reference frame
 searchoff = (1,1)
 
-print "Search position: %d" % (searchoff[0] + 16 + 33 * (searchoff[1] + 16))
+print("Search position: %d" % (searchoff[0] + 16 + 33 * (searchoff[1] + 16)))
 
-print [[sum([sum([pixdif(4*bx+x, 4*by+y, searchoff[0], searchoff[1])
+print([[sum([sum([pixdif(4*bx+x, 4*by+y, searchoff[0], searchoff[1])
                   for x in range(4)])
              for y in range(4)])
         for bx in range(4)]
-       for by in range(4)]
+       for by in range(4)])
