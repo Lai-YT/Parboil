@@ -92,21 +92,21 @@ class File(FileBase):
         self._name = path.split(fpath)[1]
 
     def exists(self):
-    	try: return path.isfile(self.getPath())
-    	except OSError: return False # handles file-not-found case
+        try: return path.isfile(self.getPath())
+        except OSError: return False # handles file-not-found case
 
     def valid(self):
-    	if self._must_exist:
-    	    return self.exists()
-    	else:
-    	    return True
+        if self._must_exist:
+            return self.exists()
+        else:
+            return True
 
     def isDir(self): return False
 
     def isFile(self): return True
 
     def getPath(self):
-    	return self._path
+        return self._path
 
     def getName(self):
         return self._name
@@ -144,20 +144,20 @@ class Directory(FileBase):
         self._name = path.split(dpath)[1]
 
     def exists(self):
-    	try: return path.isdir(self.getPath())
-    	except OSError: return False # handles file-not-found case
+        try: return path.isdir(self.getPath())
+        except OSError: return False # handles file-not-found case
 
     def valid(self):
 
-    	if self._mustExist and not self.exists():
-    	    return False
-    	
-    	if self.exists():
-    	    for file in self._contentsList:
-    	        if not file.valid(): return False
-    	    if self._realContents is not None:
-    	        for file in self._realContents:
-    	            if not file.valid(): return False
+        if self._mustExist and not self.exists():
+            return False
+
+        if self.exists():
+            for file in self._contentsList:
+                if not file.valid(): return False
+            if self._realContents is not None:
+                for file in self._realContents:
+                    if not file.valid(): return False
 
         #Children are valid, and either exists or doesn't have to
         return True
@@ -167,7 +167,7 @@ class Directory(FileBase):
     def isFile(self): return False
 
     def getPath(self):
-    	return self._path
+        return self._path
 
     def getName(self):
         return self._name
@@ -182,12 +182,11 @@ class Directory(FileBase):
             raise OSError("Directory '" + self._name + "' does not exist.")
         
         all_contents = os.listdir(self.getPath())
-
-	def has_file_of_name(name):
-	    for x in self._contentsList:
-	        if x.getName() == name:
-	            return True
-	    return False
+        def has_file_of_name(name):
+            for x in self._contentsList:
+                if x.getName() == name:
+                    return True
+            return False
 
         new_contents = [x for x in all_contents if not has_file_of_name(x)]
 
