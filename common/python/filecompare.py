@@ -163,7 +163,7 @@ class Compare(CompareMonad):
 			return (False, None)
 
 def open_or_abort(filename):
-	try: f = open(filename, "r")
+	try: f = open(filename, "rb")
 	except:
 		sys.stderr.write("Cannot open file '" + filename + "'\n")
 		sys.exit(-1)
