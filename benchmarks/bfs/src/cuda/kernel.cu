@@ -35,8 +35,7 @@ UP_LIMIT are free to visit
 */
 
 #include "config.h"
-texture<Node> g_graph_node_ref;
-texture<Edge> g_graph_edge_ref;
+#include <cuda_runtime.h>
 
 // A group of local queues of node IDs, used by an entire thread block.
 // Multiple queues are used to reduce memory contention.
@@ -143,20 +142,22 @@ __device__ void start_global_barrier(int fold){
 // Other parameters are inputs.  
 __device__ void
 visit_node(int pid,
-	   int index,
-	   LocalQueues &local_q,
-	   int *overflow,
-	   int *g_color,
-	   int *g_cost,
-	   int gray_shade)
+           int index,
+           LocalQueues &local_q,
+           int *overflow,
+           int *g_color,
+           int *g_cost,
+           cudaTextureObject_t g_graph_node_ref,
+           cudaTextureObject_t g_graph_edge_ref,
+           int gray_shade)
 {
-  g_color[pid] = BLACK;		// Mark this node as visited
-  int cur_cost = g_cost[pid];	// Look up shortest-path distance to this node
-  Node cur_node = tex1Dfetch(g_graph_node_ref,pid);
+  g_color[pid] = BLACK;     // Mark this node as visited
+  int cur_cost = g_cost[pid]; // Look up shortest-path distance to this node
+  Node cur_node = tex1Dfetch<Node>(g_graph_node_ref,pid);
 
   // For each outgoing edge
   for(int i = cur_node.x; i < cur_node.y + cur_node.x; i++) {
-    Edge cur_edge = tex1Dfetch(g_graph_edge_ref,i);
+    Edge cur_edge = tex1Dfetch<Edge>(g_graph_edge_ref,i);
     int id = cur_edge.x;
     int cost = cur_edge.y;
     cost += cur_cost;
@@ -167,8 +168,8 @@ visit_node(int pid,
     if(orig_cost > cost){
       int old_color = atomicExch(&g_color[id],gray_shade);
       if(old_color != gray_shade) {
-	//push to the queue
-	local_q.append(index, overflow, id);
+    //push to the queue
+    local_q.append(index, overflow, id);
       }
     }
   }
@@ -194,6 +195,8 @@ BFS_in_GPU_kernel(int *q1,
                   int *tail, 
                   int gray_shade, 
                   int k,
+                  cudaTextureObject_t g_graph_node_ref,
+                  cudaTextureObject_t g_graph_edge_ref,
                   int *overflow) 
 {
   __shared__ LocalQueues local_q;
@@ -221,7 +224,7 @@ BFS_in_GPU_kernel(int *q1,
       // Visit a node from the current frontier; update costs, colors, and
       // output queue
       visit_node(pid, threadIdx.x & MOD_OP, local_q, overflow,
-		 g_color, g_cost, gray_shade);
+        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_shade);
     }
     __syncthreads();
     if(threadIdx.x == 0){
@@ -251,7 +254,7 @@ BFS_in_GPU_kernel(int *q1,
     }
   }//while
 
-}	
+}
 //----------------------------------------------------------------
 //This BFS kernel propagates through multiple levels using global synchronization 
 //The basic propagation idea is the same as "BFS_kernel"
@@ -278,7 +281,9 @@ BFS_kernel_multi_blk_inGPU(int *q1,
                            int *no_of_nodes, 
                            int *tail, 
                            int gray_shade, 
-                           int k,   
+                           int k,  
+                           cudaTextureObject_t g_graph_node_ref,
+                           cudaTextureObject_t g_graph_edge_ref,
                            int *switch_k, 
                            int *max_nodes_per_block, 
                            int *global_kt,
@@ -313,7 +318,7 @@ BFS_kernel_multi_blk_inGPU(int *q1,
       // Visit a node from the current frontier; update costs, colors, and
       // output queue
       visit_node(pid, threadIdx.x & MOD_OP, local_q, overflow,
-		 g_color, g_cost, gray_shade);
+        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_shade);
     }
     __syncthreads();
 
@@ -385,6 +390,8 @@ BFS_kernel(int *q1,
            int *tail, 
            int gray_shade, 
            int k,
+           cudaTextureObject_t g_graph_node_ref,
+           cudaTextureObject_t g_graph_edge_ref,
            int *overflow) 
 {
   __shared__ LocalQueues local_q;
@@ -404,7 +411,7 @@ BFS_kernel(int *q1,
     // Visit a node from the current frontier; update costs, colors, and
     // output queue
     visit_node(q1[tid], threadIdx.x & MOD_OP, local_q, overflow,
-	       g_color, g_cost, gray_shade);
+      g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_shade);
   }
   __syncthreads();
 
@@ -423,3 +430,5 @@ BFS_kernel(int *q1,
   local_q.concatenate(q2 + shift, prefix_q);
 }
 #endif 
+
+/* vim: set ts=2 sw=2 et ai: */

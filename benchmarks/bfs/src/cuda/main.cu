@@ -133,9 +133,33 @@ int main(int argc, char** argv)
   cudaMemcpy(d_color, color, sizeof(int)*num_of_nodes, cudaMemcpyHostToDevice);
   cudaMemcpy(d_cost, h_cost, sizeof(int)*num_of_nodes, cudaMemcpyHostToDevice);
 
-  //bind the texture memory with global memory
-  cudaBindTexture(0,g_graph_node_ref,d_graph_nodes, sizeof(Node)*num_of_nodes);
-  cudaBindTexture(0,g_graph_edge_ref,d_graph_edges,sizeof(Edge)*num_of_edges);
+  // Create texture objects for node and edge arrays
+  struct cudaResourceDesc resNode;
+  memset(&resNode, 0, sizeof(resNode));
+  resNode.resType = cudaResourceTypeLinear;
+  resNode.res.linear.devPtr = d_graph_nodes;
+  resNode.res.linear.desc = cudaCreateChannelDesc<Node>();
+  resNode.res.linear.sizeInBytes = sizeof(Node) * num_of_nodes;
+
+  struct cudaResourceDesc resEdge;
+  memset(&resEdge, 0, sizeof(resEdge));
+  resEdge.resType = cudaResourceTypeLinear;
+  resEdge.res.linear.devPtr = d_graph_edges;
+  resEdge.res.linear.desc = cudaCreateChannelDesc<Edge>();
+  resEdge.res.linear.sizeInBytes = sizeof(Edge) * num_of_edges;
+
+  struct cudaTextureDesc texDesc;
+  memset(&texDesc, 0, sizeof(texDesc));
+  texDesc.addressMode[0] = cudaAddressModeClamp;
+  texDesc.addressMode[1] = cudaAddressModeClamp;
+  texDesc.filterMode = cudaFilterModePoint;
+  texDesc.readMode = cudaReadModeElementType;
+  texDesc.normalizedCoords = 0;
+
+  cudaTextureObject_t g_graph_node_ref = 0;
+  cudaCreateTextureObject(&g_graph_node_ref, &resNode, &texDesc, NULL);
+  cudaTextureObject_t g_graph_edge_ref = 0;
+  cudaCreateTextureObject(&g_graph_edge_ref, &resEdge, &texDesc, NULL);
 
 
   printf("Starting GPU kernel\n");
@@ -204,17 +228,17 @@ int main(int argc, char** argv)
     dim3  grid( num_of_blocks, 1, 1);
     dim3  threads( num_of_threads_per_block, 1, 1);
 
-    if(k%2 == 0){
+      if(k%2 == 0){
       if(num_of_blocks == 1){
         BFS_in_GPU_kernel<<< grid, threads >>>(d_q1,d_q2, d_graph_nodes, 
-            d_graph_edges, d_color, d_cost,num_t , tail,GRAY0,k,d_overflow);
+          d_graph_edges, d_color, d_cost,num_t , tail,GRAY0,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
       else if(num_of_blocks <= NUM_SM){
         (cudaMemcpy(num_td,&num_t,sizeof(int),
                     cudaMemcpyHostToDevice));
         BFS_kernel_multi_blk_inGPU
           <<< grid, threads >>>(d_q1,d_q2, d_graph_nodes, 
-              d_graph_edges, d_color, d_cost, num_td, tail,GRAY0,k,
+              d_graph_edges, d_color, d_cost, num_td, tail,GRAY0,k,g_graph_node_ref,g_graph_edge_ref,
               switch_kd, max_nodes_per_block_d, global_kt_d,d_overflow);
         (cudaMemcpy(&switch_k,switch_kd, sizeof(int),
                     cudaMemcpyDeviceToHost));
@@ -224,20 +248,20 @@ int main(int argc, char** argv)
       }
       else{
         BFS_kernel<<< grid, threads >>>(d_q1,d_q2, d_graph_nodes, 
-            d_graph_edges, d_color, d_cost, num_t, tail,GRAY0,k,d_overflow);
+          d_graph_edges, d_color, d_cost, num_t, tail,GRAY0,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
     }
     else{
       if(num_of_blocks == 1){
         BFS_in_GPU_kernel<<< grid, threads >>>(d_q2,d_q1, d_graph_nodes, 
-            d_graph_edges, d_color, d_cost, num_t, tail,GRAY1,k,d_overflow);
+          d_graph_edges, d_color, d_cost, num_t, tail,GRAY1,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
       else if(num_of_blocks <= NUM_SM){
         (cudaMemcpy(num_td,&num_t,sizeof(int),
                     cudaMemcpyHostToDevice));
         BFS_kernel_multi_blk_inGPU
           <<< grid, threads >>>(d_q2,d_q1, d_graph_nodes, 
-              d_graph_edges, d_color, d_cost, num_td, tail,GRAY1,k,
+              d_graph_edges, d_color, d_cost, num_td, tail,GRAY1,k,g_graph_node_ref,g_graph_edge_ref,
               switch_kd, max_nodes_per_block_d, global_kt_d,d_overflow);
         (cudaMemcpy(&switch_k,switch_kd, sizeof(int),
                     cudaMemcpyDeviceToHost));
@@ -247,7 +271,7 @@ int main(int argc, char** argv)
       }
       else{
         BFS_kernel<<< grid, threads >>>(d_q2,d_q1, d_graph_nodes, 
-            d_graph_edges, d_color, d_cost, num_t, tail, GRAY1,k,d_overflow);
+          d_graph_edges, d_color, d_cost, num_t, tail, GRAY1,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
     }
     k++;
@@ -264,8 +288,9 @@ int main(int argc, char** argv)
   // copy result from device to host
   cudaMemcpy(h_cost, d_cost, sizeof(int)*num_of_nodes, cudaMemcpyDeviceToHost);
   cudaMemcpy(color, d_color, sizeof(int)*num_of_nodes, cudaMemcpyDeviceToHost);
-  cudaUnbindTexture(g_graph_node_ref);
-  cudaUnbindTexture(g_graph_edge_ref);
+  // destroy texture objects
+  cudaDestroyTextureObject(g_graph_node_ref);
+  cudaDestroyTextureObject(g_graph_edge_ref);
 
   cudaFree(d_graph_nodes);
   cudaFree(d_graph_edges);
@@ -291,3 +316,5 @@ int main(int argc, char** argv)
   pb_FreeParameters(params);
   return 0;
 }
+
+/* vim: set ts=2 sw=2 sts=2 et ai: */
