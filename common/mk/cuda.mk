@@ -100,7 +100,7 @@ $(BIN) : $(OBJS) $(BUILDDIR)/parboil_cuda.o $(BUILDDIR)/args.o
 	$(CUDALINK) -o $@ $(CUDALDFLAGS) $^
 
 $(BUILDDIR)/parboil_cuda.o : $(PARBOIL_ROOT)/common/src/parboil_cuda.c ${BUILDDIR}
-	$(CUDACC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILDDIR)/parboil.o : $(PARBOIL_ROOT)/common/src/parboil.c ${BUILDDIR}
 	$(CC) $(CFLAGS) -c $< -o $@
