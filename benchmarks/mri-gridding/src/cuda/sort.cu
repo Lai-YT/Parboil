@@ -88,20 +88,21 @@ __device__ void scan (unsigned int s_data[BLOCK_P_OFFSET]){
   __syncthreads();
 }
 
-__global__ static void splitSort(int numElems, int iter, unsigned int* keys, unsigned int* values, unsigned int* histo)
+__global__ static void splitSort(int numElems, int iter, unsigned int (*keys)[4*SORT_BS], unsigned int (*values)[4*SORT_BS], unsigned int* histo)
 {
     __shared__ unsigned int flags[BLOCK_P_OFFSET];
     __shared__ unsigned int histo_s[1<<BITS];
 
     const unsigned int tid = threadIdx.x;
-    const unsigned int gid = blockIdx.x*4*SORT_BS+4*threadIdx.x;
+  const unsigned int local_idx = 4*threadIdx.x;
+  const unsigned int gid = blockIdx.x*4*SORT_BS + local_idx;
 
     // Copy input to shared mem. Assumes input is always even numbered
     uint4 lkey = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
     uint4 lvalue;
     if (gid < numElems){
-      lkey = *((uint4*)(keys+gid));
-      lvalue = *((uint4*)(values+gid));
+      lkey = *((uint4*)(&keys[blockIdx.x][local_idx]));
+      lvalue = *((uint4*)(&values[blockIdx.x][local_idx]));
     }
 
     if(tid < (1<<BITS)){
@@ -142,25 +143,26 @@ __global__ static void splitSort(int numElems, int iter, unsigned int* keys, uns
 
     // Write result.
     if (gid < numElems){
-      keys[blockIdx.x*4*SORT_BS+index.x] = lkey.x;
-      keys[blockIdx.x*4*SORT_BS+index.y] = lkey.y;
-      keys[blockIdx.x*4*SORT_BS+index.z] = lkey.z;
-      keys[blockIdx.x*4*SORT_BS+index.w] = lkey.w;
+      keys[blockIdx.x][index.x] = lkey.x;
+      keys[blockIdx.x][index.y] = lkey.y;
+      keys[blockIdx.x][index.z] = lkey.z;
+      keys[blockIdx.x][index.w] = lkey.w;
 
-      values[blockIdx.x*4*SORT_BS+index.x] = lvalue.x;
-      values[blockIdx.x*4*SORT_BS+index.y] = lvalue.y;
-      values[blockIdx.x*4*SORT_BS+index.z] = lvalue.z;
-      values[blockIdx.x*4*SORT_BS+index.w] = lvalue.w;
+      values[blockIdx.x][index.x] = lvalue.x;
+      values[blockIdx.x][index.y] = lvalue.y;
+      values[blockIdx.x][index.z] = lvalue.z;
+      values[blockIdx.x][index.w] = lvalue.w;
     }
     if (tid < (1<<BITS)){
       histo[gridDim.x*threadIdx.x+blockIdx.x] = histo_s[tid];
     }
 }
 
-__global__ void splitRearrange (int numElems, int iter, unsigned int* keys_i, unsigned int* keys_o, unsigned int* values_i, unsigned int* values_o, unsigned int* histo){
+__global__ void splitRearrange (int numElems, int iter, unsigned int (*keys_i)[4*SORT_BS], unsigned int (*keys_o)[4*SORT_BS], unsigned int (*values_i)[4*SORT_BS], unsigned int (*values_o)[4*SORT_BS], unsigned int* histo){
   __shared__ unsigned int histo_s[(1<<BITS)];
   __shared__ unsigned int array_s[4*SORT_BS];
-  int index = blockIdx.x*4*SORT_BS + 4*threadIdx.x;
+  int local_idx = 4*threadIdx.x;
+  int index = blockIdx.x*4*SORT_BS + local_idx;
 
   if (threadIdx.x < (1<<BITS)){
     histo_s[threadIdx.x] = histo[gridDim.x*threadIdx.x+blockIdx.x];
@@ -168,8 +170,8 @@ __global__ void splitRearrange (int numElems, int iter, unsigned int* keys_i, un
 
   uint4 mine, value;
   if (index < numElems){
-    mine = *((uint4*)(keys_i+index));
-    value = *((uint4*)(values_i+index));
+    mine = *((uint4*)(&keys_i[blockIdx.x][local_idx]));
+    value = *((uint4*)(&values_i[blockIdx.x][local_idx]));
   } else {
     mine.x = UINT32_MAX;
     mine.y = UINT32_MAX;
@@ -201,17 +203,21 @@ __global__ void splitRearrange (int numElems, int iter, unsigned int* keys_i, un
   new_index.w = (masks.w == masks.z) ? new_index.z+1 : new_index.w;
 
   if (index < numElems){
-    keys_o[new_index.x] = mine.x;
-    values_o[new_index.x] = value.x;
+#define BLK(val) ((val) / (4*SORT_BS))
+#define OFF(val) ((val) % (4*SORT_BS))
+    keys_o[BLK(new_index.x)][OFF(new_index.x)] = mine.x;
+    values_o[BLK(new_index.x)][OFF(new_index.x)] = value.x;
 
-    keys_o[new_index.y] = mine.y;
-    values_o[new_index.y] = value.y;
+    keys_o[BLK(new_index.y)][OFF(new_index.y)] = mine.y;
+    values_o[BLK(new_index.y)][OFF(new_index.y)] = value.y;
 
-    keys_o[new_index.z] = mine.z;
-    values_o[new_index.z] = value.z;
+    keys_o[BLK(new_index.z)][OFF(new_index.z)] = mine.z;
+    values_o[BLK(new_index.z)][OFF(new_index.z)] = value.z;
 
-    keys_o[new_index.w] = mine.w;
-    values_o[new_index.w] = value.w;
+    keys_o[BLK(new_index.w)][OFF(new_index.w)] = mine.w;
+    values_o[BLK(new_index.w)][OFF(new_index.w)] = value.w;
+#undef BLK
+#undef OFF
   }
 }
 
@@ -233,11 +239,11 @@ void sort (int numElems, unsigned int max_value, unsigned int* &dkeys, unsigned 
   cudaMalloc((void**)&dvalues_o, numElems*sizeof(unsigned int));
 
   for (int i=0; i<iterations; i++){
-    splitSort<<<grid,block>>>(numElems, i, dkeys, dvalues, dhisto);
+    splitSort<<<grid,block>>>(numElems, i, (unsigned int (*)[4*SORT_BS])dkeys, (unsigned int (*)[4*SORT_BS])dvalues, dhisto);
 
     scanLargeArray(grid.x*(1<<BITS), dhisto);
 
-    splitRearrange<<<grid,block>>>(numElems, i, dkeys, dkeys_o, dvalues, dvalues_o, dhisto);
+    splitRearrange<<<grid,block>>>(numElems, i, (unsigned int (*)[4*SORT_BS])dkeys, (unsigned int (*)[4*SORT_BS])dkeys_o, (unsigned int (*)[4*SORT_BS])dvalues, (unsigned int (*)[4*SORT_BS])dvalues_o, dhisto);
 
     unsigned int* temp = dkeys;
     dkeys = dkeys_o;
@@ -252,3 +258,5 @@ void sort (int numElems, unsigned int max_value, unsigned int* &dkeys, unsigned 
   cudaFree(dvalues_o);
   cudaFree(dhisto);
 }
+
+/* vim: set ts=2 sw=2 sts=2 et ai: */
