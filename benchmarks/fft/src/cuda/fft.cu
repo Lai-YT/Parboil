@@ -51,10 +51,10 @@ This implementation is partly based on the SC08 paper by Naga K. Govindaraju et 
 #define T  N/R 
 
 
-inline float2 operator*( float2 a, float2 b ) { return make_float2( a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x ); }
-inline float2 operator+( float2 a, float2 b ) { return make_float2( a.x + b.x, a.y + b.y ); }
-inline float2 operator-( float2 a, float2 b ) { return make_float2( a.x - b.x, a.y - b.y ); }
-inline float2 operator*( float2 a, float b ) { return make_float2( b*a.x , b*a.y); }
+__host__ __device__ inline float2 operator*( float2 a, float2 b ) { return make_float2( a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x ); }
+__host__ __device__ inline float2 operator+( float2 a, float2 b ) { return make_float2( a.x + b.x, a.y + b.y ); }
+__host__ __device__ inline float2 operator-( float2 a, float2 b ) { return make_float2( a.x - b.x, a.y - b.y ); }
+__host__ __device__ inline float2 operator*( float2 a, float b ) { return make_float2( b*a.x , b*a.y); }
 
 #define COS_PI_8  0.923879533f
 #define SIN_PI_8  0.382683432f
