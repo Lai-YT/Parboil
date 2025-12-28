@@ -87,14 +87,10 @@ endif
 default: $(FAILSAFE) $(BUILDDIR) $(BIN)
 
 run:
-	@echo "Resolving CUDA runtime library..."
-	@$(shell echo $(RUNTIME_ENV)) LD_LIBRARY_PATH=$(CUDA_LIB_PATH) ldd $(BIN) | grep cuda
-	@$(shell echo $(RUNTIME_ENV)) LD_LIBRARY_PATH=$(CUDA_LIB_PATH) $(BIN) $(ARGS)
+	$(BIN) $(ARGS)
 
 debug:
-	@echo "Resolving CUDA runtime library..."
-	@$(shell echo $(RUNTIME_ENV)) LD_LIBRARY_PATH=$(CUDA_LIB_PATH) ldd $(BIN) | grep cuda
-	@$(shell echo $(RUNTIME_ENV)) LD_LIBRARY_PATH=$(CUDA_LIB_PATH) $(DEBUGGER) --args $(BIN) $(ARGS)
+	$(DEBUGGER) --args $(BIN) $(ARGS)
 
 clean :
 	rm -rf $(BUILDDIR)/*
