@@ -201,12 +201,16 @@ BFS_in_GPU_kernel(int *q1,
 {
   __shared__ LocalQueues local_q;
   __shared__ int prefix_q[NUM_BIN];
+  __shared__ int gray_sh;
 
   //next/new wave front
   __shared__ int next_wf[MAX_THREADS_PER_BLOCK];
   __shared__ int  tot_sum;
-  if(threadIdx.x == 0)	
+  if(threadIdx.x == 0) {
     tot_sum = 0;//total number of new frontier nodes
+    gray_sh = gray_shade;
+  }
+  __syncthreads();
   while(1){//propage through multiple BFS levels until the wavfront overgrows one-block limit
     if(threadIdx.x < NUM_BIN){
       local_q.reset(threadIdx.x, blockDim);
@@ -224,7 +228,7 @@ BFS_in_GPU_kernel(int *q1,
       // Visit a node from the current frontier; update costs, colors, and
       // output queue
       visit_node(pid, threadIdx.x & MOD_OP, local_q, overflow,
-        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_shade);
+        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_sh);
     }
     __syncthreads();
     if(threadIdx.x == 0){
@@ -241,11 +245,12 @@ BFS_in_GPU_kernel(int *q1,
       __syncthreads();
       no_of_nodes = tot_sum;
       if(threadIdx.x == 0){
-        if(gray_shade == GRAY0)
-          gray_shade = GRAY1;
+        if(gray_sh == GRAY0)
+          gray_sh = GRAY1;
         else
-          gray_shade = GRAY0;
+          gray_sh = GRAY0;
       }
+      __syncthreads();
     }
     else{
       //the new frontier outgrows one-block limit; terminate current kernel
@@ -294,11 +299,14 @@ BFS_kernel_multi_blk_inGPU(int *q1,
   __shared__ int shift;
   __shared__ int no_of_nodes_sm;
   __shared__ int odd_time;// the odd level of propagation within current kernel
+  __shared__ int gray_sh;
   if(threadIdx.x == 0){
     odd_time = 1;//true;
+    gray_sh = gray_shade;
     if(blockIdx.x == 0)
       no_of_nodes_vol = *no_of_nodes;
   }
+  __syncthreads();
   int kt = atomicOr(global_kt,0);// the total count of GPU global synchronization 
   while (1){//propagate through multiple levels
     if(threadIdx.x < NUM_BIN){
@@ -318,7 +326,7 @@ BFS_kernel_multi_blk_inGPU(int *q1,
       // Visit a node from the current frontier; update costs, colors, and
       // output queue
       visit_node(pid, threadIdx.x & MOD_OP, local_q, overflow,
-        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_shade);
+        g_color, g_cost, g_graph_node_ref, g_graph_edge_ref, gray_sh);
     }
     __syncthreads();
 
@@ -335,11 +343,12 @@ BFS_kernel_multi_blk_inGPU(int *q1,
 
     if(threadIdx.x == 0){
       odd_time = (odd_time+1)%2;
-      if(gray_shade == GRAY0)
-        gray_shade = GRAY1;
+      if(gray_sh == GRAY0)
+        gray_sh = GRAY1;
       else
-        gray_shade = GRAY0;
+        gray_sh = GRAY0;
     }
+    __syncthreads();
 
     //synchronize among all the blks
     start_global_barrier(kt+1);

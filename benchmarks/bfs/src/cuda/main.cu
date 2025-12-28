@@ -234,6 +234,14 @@ int main(int argc, char** argv)
           d_graph_edges, d_color, d_cost,num_t , tail,GRAY0,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
       else if(num_of_blocks <= NUM_SM){
+        // BFS_kernel_multi_blk_inGPU relies on a device-global barrier counter.
+        // When this kernel is launched multiple times (common for larger inputs),
+        // stale barrier state can break level synchronization and yield wrong costs.
+        // Reset barrier-related device globals and the per-launch barrier fold counter.
+        cudaMemcpyToSymbol(count, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpyToSymbol(no_of_nodes_vol, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpyToSymbol(stay_vol, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpy(global_kt_d, &zero, sizeof(int), cudaMemcpyHostToDevice);
         (cudaMemcpy(num_td,&num_t,sizeof(int),
                     cudaMemcpyHostToDevice));
         BFS_kernel_multi_blk_inGPU
@@ -257,6 +265,11 @@ int main(int argc, char** argv)
           d_graph_edges, d_color, d_cost, num_t, tail,GRAY1,k,g_graph_node_ref,g_graph_edge_ref,d_overflow);
       }
       else if(num_of_blocks <= NUM_SM){
+        // Reset multi-block barrier state for this launch; see comment above.
+        cudaMemcpyToSymbol(count, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpyToSymbol(no_of_nodes_vol, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpyToSymbol(stay_vol, &zero, sizeof(int), 0, cudaMemcpyHostToDevice);
+        cudaMemcpy(global_kt_d, &zero, sizeof(int), cudaMemcpyHostToDevice);
         (cudaMemcpy(num_td,&num_t,sizeof(int),
                     cudaMemcpyHostToDevice));
         BFS_kernel_multi_blk_inGPU
