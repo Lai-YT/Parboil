@@ -8,7 +8,7 @@ import itertools
 import filecompare as fc
 import textfilecompare as tfc
 
-ref = file(sys.argv[1], "r")
+ref = open(sys.argv[1], "r")
 size = int(ref.readline()) 
 
 
