@@ -24,7 +24,7 @@ def compare_floats(ref_list, cmp_list):
 		diff = abs(r - c)
 		if not (diff <= abstol or diff < 0.002 * abs(r)):
 			# Floats mismatch
-			print "Fail at row %d: (gold) %f != %f (computed)" % (row, r, c)
+			print("Fail at row %d: (gold) %f != %f (computed)" % (row, r, c))
 			num_printed_error = num_printed_error + 1
 			if (num_printed_error >= 10):
 				break
