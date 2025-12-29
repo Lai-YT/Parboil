@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "scanLargeArray.h"
+#include "texture.cuh"
 
 #define UINT32_MAX 4294967295
 #define BITS 4
@@ -88,7 +89,7 @@ __device__ void scan (unsigned int s_data[BLOCK_P_OFFSET]){
   __syncthreads();
 }
 
-__global__ static void splitSort(int numElems, int iter, unsigned int (*keys)[4*SORT_BS], unsigned int (*values)[4*SORT_BS], unsigned int* histo)
+__global__ static void splitSort(int numElems, int iter, cudaSurfaceObject_t keys_surf, cudaSurfaceObject_t values_surf, unsigned int* histo)
 {
     __shared__ unsigned int flags[BLOCK_P_OFFSET];
     __shared__ unsigned int histo_s[1<<BITS];
@@ -101,8 +102,18 @@ __global__ static void splitSort(int numElems, int iter, unsigned int (*keys)[4*
     uint4 lkey = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
     uint4 lvalue;
     if (gid < numElems){
-      lkey = *((uint4*)(&keys[blockIdx.x][local_idx]));
-      lvalue = *((uint4*)(&values[blockIdx.x][local_idx]));
+      unsigned int k0,k1,k2,k3;
+      unsigned int v0,v1,v2,v3;
+      surf2Dread(&k0, keys_surf, local_idx * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&k1, keys_surf, (local_idx+1) * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&k2, keys_surf, (local_idx+2) * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&k3, keys_surf, (local_idx+3) * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&v0, values_surf, local_idx * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&v1, values_surf, (local_idx+1) * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&v2, values_surf, (local_idx+2) * sizeof(unsigned int), blockIdx.x);
+      surf2Dread(&v3, values_surf, (local_idx+3) * sizeof(unsigned int), blockIdx.x);
+      lkey.x = k0; lkey.y = k1; lkey.z = k2; lkey.w = k3;
+      lvalue.x = v0; lvalue.y = v1; lvalue.z = v2; lvalue.w = v3;
     }
 
     if(tid < (1<<BITS)){
@@ -143,22 +154,22 @@ __global__ static void splitSort(int numElems, int iter, unsigned int (*keys)[4*
 
     // Write result.
     if (gid < numElems){
-      keys[blockIdx.x][index.x] = lkey.x;
-      keys[blockIdx.x][index.y] = lkey.y;
-      keys[blockIdx.x][index.z] = lkey.z;
-      keys[blockIdx.x][index.w] = lkey.w;
+      surf2Dwrite(lkey.x, keys_surf, index.x * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lkey.y, keys_surf, index.y * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lkey.z, keys_surf, index.z * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lkey.w, keys_surf, index.w * sizeof(unsigned int), blockIdx.x);
 
-      values[blockIdx.x][index.x] = lvalue.x;
-      values[blockIdx.x][index.y] = lvalue.y;
-      values[blockIdx.x][index.z] = lvalue.z;
-      values[blockIdx.x][index.w] = lvalue.w;
+      surf2Dwrite(lvalue.x, values_surf, index.x * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lvalue.y, values_surf, index.y * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lvalue.z, values_surf, index.z * sizeof(unsigned int), blockIdx.x);
+      surf2Dwrite(lvalue.w, values_surf, index.w * sizeof(unsigned int), blockIdx.x);
     }
     if (tid < (1<<BITS)){
       histo[gridDim.x*threadIdx.x+blockIdx.x] = histo_s[tid];
     }
 }
 
-__global__ void splitRearrange (int numElems, int iter, unsigned int (*keys_i)[4*SORT_BS], unsigned int (*keys_o)[4*SORT_BS], unsigned int (*values_i)[4*SORT_BS], unsigned int (*values_o)[4*SORT_BS], unsigned int* histo){
+__global__ void splitRearrange (int numElems, int iter, cudaSurfaceObject_t keys_i_surf, cudaSurfaceObject_t keys_o_surf, cudaSurfaceObject_t values_i_surf, cudaSurfaceObject_t values_o_surf, unsigned int* histo){
   __shared__ unsigned int histo_s[(1<<BITS)];
   __shared__ unsigned int array_s[4*SORT_BS];
   int local_idx = 4*threadIdx.x;
@@ -170,8 +181,18 @@ __global__ void splitRearrange (int numElems, int iter, unsigned int (*keys_i)[4
 
   uint4 mine, value;
   if (index < numElems){
-    mine = *((uint4*)(&keys_i[blockIdx.x][local_idx]));
-    value = *((uint4*)(&values_i[blockIdx.x][local_idx]));
+    unsigned int k0,k1,k2,k3;
+    unsigned int v0,v1,v2,v3;
+    surf2Dread(&k0, keys_i_surf, local_idx * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&k1, keys_i_surf, (local_idx+1) * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&k2, keys_i_surf, (local_idx+2) * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&k3, keys_i_surf, (local_idx+3) * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&v0, values_i_surf, local_idx * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&v1, values_i_surf, (local_idx+1) * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&v2, values_i_surf, (local_idx+2) * sizeof(unsigned int), blockIdx.x);
+    surf2Dread(&v3, values_i_surf, (local_idx+3) * sizeof(unsigned int), blockIdx.x);
+    mine.x = k0; mine.y = k1; mine.z = k2; mine.w = k3;
+    value.x = v0; value.y = v1; value.z = v2; value.w = v3;
   } else {
     mine.x = UINT32_MAX;
     mine.y = UINT32_MAX;
@@ -205,24 +226,25 @@ __global__ void splitRearrange (int numElems, int iter, unsigned int (*keys_i)[4
   if (index < numElems){
 #define BLK(val) ((val) / (4*SORT_BS))
 #define OFF(val) ((val) % (4*SORT_BS))
-    keys_o[BLK(new_index.x)][OFF(new_index.x)] = mine.x;
-    values_o[BLK(new_index.x)][OFF(new_index.x)] = value.x;
 
-    keys_o[BLK(new_index.y)][OFF(new_index.y)] = mine.y;
-    values_o[BLK(new_index.y)][OFF(new_index.y)] = value.y;
+    surf2Dwrite(mine.x, keys_o_surf, OFF(new_index.x) * sizeof(unsigned int), BLK(new_index.x));
+    surf2Dwrite(value.x, values_o_surf, OFF(new_index.x) * sizeof(unsigned int), BLK(new_index.x));
 
-    keys_o[BLK(new_index.z)][OFF(new_index.z)] = mine.z;
-    values_o[BLK(new_index.z)][OFF(new_index.z)] = value.z;
+    surf2Dwrite(mine.y, keys_o_surf, OFF(new_index.y) * sizeof(unsigned int), BLK(new_index.y));
+    surf2Dwrite(value.y, values_o_surf, OFF(new_index.y) * sizeof(unsigned int), BLK(new_index.y));
 
-    keys_o[BLK(new_index.w)][OFF(new_index.w)] = mine.w;
-    values_o[BLK(new_index.w)][OFF(new_index.w)] = value.w;
+    surf2Dwrite(mine.z, keys_o_surf, OFF(new_index.z) * sizeof(unsigned int), BLK(new_index.z));
+    surf2Dwrite(value.z, values_o_surf, OFF(new_index.z) * sizeof(unsigned int), BLK(new_index.z));
+
+    surf2Dwrite(mine.w, keys_o_surf, OFF(new_index.w) * sizeof(unsigned int), BLK(new_index.w));
+    surf2Dwrite(value.w, values_o_surf, OFF(new_index.w) * sizeof(unsigned int), BLK(new_index.w));
 #undef BLK
 #undef OFF
   }
 }
 
-void sort (int numElems, unsigned int max_value, unsigned int* &dkeys, unsigned int* &dvalues){
-  dim3 grid ((numElems+4*SORT_BS-1)/(4*SORT_BS));
+void sort (int numElems, unsigned int max_value, wrap::cuda::SurfaceObject<unsigned int> &dkeys, wrap::cuda::SurfaceObject<unsigned int> &dvalues, int surfW, int surfH){
+  dim3 grid (surfH);
   dim3 block (SORT_BS);
 
   unsigned int iterations = 0;
@@ -232,30 +254,32 @@ void sort (int numElems, unsigned int max_value, unsigned int* &dkeys, unsigned 
   }
 
   unsigned int *dhisto;
-  unsigned int *dkeys_o, *dvalues_o;
+  wrap::cuda::SurfaceObject<unsigned int> keys_o_surf, values_o_surf;
 
   cudaMalloc((void**)&dhisto, (1<<BITS)*grid.x*sizeof(unsigned int));
-  cudaMalloc((void**)&dkeys_o, numElems*sizeof(unsigned int));
-  cudaMalloc((void**)&dvalues_o, numElems*sizeof(unsigned int));
+  if (wrap::cuda::malloc2DSurfaceObject<unsigned int>(&keys_o_surf, surfW, surfH) != cudaSuccess){
+    printf("Failed allocating keys_o surface in sort\n");
+    return;
+  }
+  if (wrap::cuda::malloc2DSurfaceObject<unsigned int>(&values_o_surf, surfW, surfH) != cudaSuccess){
+    printf("Failed allocating values_o surface in sort\n");
+    return;
+  }
 
   for (int i=0; i<iterations; i++){
-    splitSort<<<grid,block>>>(numElems, i, (unsigned int (*)[4*SORT_BS])dkeys, (unsigned int (*)[4*SORT_BS])dvalues, dhisto);
+    splitSort<<<grid,block>>>(numElems, i, dkeys.surf, dvalues.surf, dhisto);
 
     scanLargeArray(grid.x*(1<<BITS), dhisto);
 
-    splitRearrange<<<grid,block>>>(numElems, i, (unsigned int (*)[4*SORT_BS])dkeys, (unsigned int (*)[4*SORT_BS])dkeys_o, (unsigned int (*)[4*SORT_BS])dvalues, (unsigned int (*)[4*SORT_BS])dvalues_o, dhisto);
+    splitRearrange<<<grid,block>>>(numElems, i, dkeys.surf, keys_o_surf.surf, dvalues.surf, values_o_surf.surf, dhisto);
 
-    unsigned int* temp = dkeys;
-    dkeys = dkeys_o;
-    dkeys_o = temp;
-
-    temp = dvalues;
-    dvalues = dvalues_o;
-    dvalues_o = temp;
+    // swap surface objects
+    { auto tmp = dkeys; dkeys = keys_o_surf; keys_o_surf = tmp; }
+    { auto tmp = dvalues; dvalues = values_o_surf; values_o_surf = tmp; }
   }
 
-  cudaFree(dkeys_o);
-  cudaFree(dvalues_o);
+  wrap::cuda::freeSurfaceObject<unsigned int>(&keys_o_surf);
+  wrap::cuda::freeSurfaceObject<unsigned int>(&values_o_surf);
   cudaFree(dhisto);
 }
 

@@ -6,4 +6,5 @@
  *
  ***************************************************************************/
 
-void sort (int numElems, unsigned int maxValue, unsigned int* &dkeys, unsigned int* &dvalues);
+#include "texture.cuh"
+void sort (int numElems, unsigned int maxValue, wrap::cuda::SurfaceObject<unsigned int> &dkeys, wrap::cuda::SurfaceObject<unsigned int> &dvalues, int surfW, int surfH);

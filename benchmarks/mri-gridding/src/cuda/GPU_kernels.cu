@@ -29,8 +29,8 @@ __constant__ int gridSize_c[3];
 __constant__ int size_xy_c;
 __constant__ float _1overCutoff2_c;
 
-__global__ void binning_kernel (unsigned int n, ReconstructionSample* sample_g, unsigned int* idxKey_g,
-                                unsigned int* idxValue_g, unsigned int* binCount_g, unsigned int binsize, unsigned int gridNumElems){
+__global__ void binning_kernel (unsigned int n, ReconstructionSample* sample_g, cudaSurfaceObject_t idxKey_surf,
+                                cudaSurfaceObject_t idxValue_surf, unsigned int* binCount_g, unsigned int binsize, unsigned int gridNumElems, int surfW){
   unsigned int key;
   unsigned int sampleIdx = blockIdx.x*blockDim.x+threadIdx.x;
   ReconstructionSample pt;
@@ -53,18 +53,23 @@ __global__ void binning_kernel (unsigned int n, ReconstructionSample* sample_g, 
       key = gridNumElems;
     }
 
-    idxKey_g[sampleIdx] = key;
-    idxValue_g[sampleIdx] = sampleIdx;
+    // map flat index to 2D coords (x = sampleIdx % surfW, y = sampleIdx / surfW)
+    int x = sampleIdx % surfW;
+    int y = sampleIdx / surfW;
+    surf2Dwrite(key, idxKey_surf, x * sizeof(unsigned int), y);
+    surf2Dwrite(sampleIdx, idxValue_surf, x * sizeof(unsigned int), y);
   }
 }
 
-__global__ void reorder_kernel(int n, unsigned int* idxValue_g, ReconstructionSample* samples_g, sampleArrayStruct sortedSampleSoA_g){
+__global__ void reorder_kernel(int n, cudaSurfaceObject_t idxValue_surf, ReconstructionSample* samples_g, sampleArrayStruct sortedSampleSoA_g, int surfW){
   unsigned int index = blockIdx.x*blockDim.x + threadIdx.x;
-  unsigned int old_index;
+  unsigned int old_index = 0;
   ReconstructionSample pt;
 
   if (index < n){
-    old_index = idxValue_g[index];
+    int x = index % surfW;
+    int y = index / surfW;
+    surf2Dread(&old_index, idxValue_surf, x * sizeof(unsigned int), y);
     pt = samples_g[old_index];
 
     float2 data;

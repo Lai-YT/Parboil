@@ -18,6 +18,7 @@
 #include "scanLargeArray.h"
 #include "GPU_kernels.cu"
 #include "CPU_kernels.h"
+#include "texture.cuh"
 
 #define USE_CUDPP 0
 #if USE_CUDPP
@@ -29,6 +30,7 @@
 
 #define BLOCKSIZE 512
 #define PI 3.14159265359
+#define SORT_BS 256
 
 #define CUERR \
   do { \
@@ -106,11 +108,11 @@ void CUDA_interface (
                                             //   of arrays manner.
   float2* gridData_d = NULL;                // Device array for output grid
   float* sampleDensity_d = NULL;            // Device array for output sample density
-  unsigned int* idxKey_d = NULL;            // Array of bin indeces generated in the binning kernel
-                                            //   and used to sort the input elements into their
+  wrap::cuda::SurfaceObject<unsigned int>   // Array of bin indeces generated in the binning kernel
+  idxKey_d;                                 //   and used to sort the input elements into their
                                             //   corresponding bins
-  unsigned int* idxValue_d = NULL;          // This array holds the indices of input elements in the
-                                            //   the original array. This array is sorted using the
+  wrap::cuda::SurfaceObject<unsigned int>   // This array holds the indices of input elements in the
+  idxValue_d;                               //   the original array. This array is sorted using the
                                             //   the idxKey_d array, and once sorted, it is used in
                                             //   the reorder kernel to move the actual elements into
                                             //   their corresponding bins.
@@ -128,8 +130,23 @@ void CUDA_interface (
   cudaMalloc((void**)&sortedSample_d, (n+npad)*sizeof(ReconstructionSample));
   cudaMalloc((void**)&binStartAddr_d, (gridNumElems+1)*sizeof(unsigned int));
   cudaMalloc((void**)&sample_d, n*sizeof(ReconstructionSample));
-  cudaMalloc((void**)&idxKey_d, (((n+3)/4)*4)*sizeof(unsigned int));   //Pad to nearest multiple of 4 to 
-  cudaMalloc((void**)&idxValue_d, (((n+3)/4)*4)*sizeof(unsigned int)); //satisfy a property of the sorting kernel.
+  // allocate surface-backed arrays for idxKey/idxValue (2D surfaces matching sort layout)
+  // Round number of elements up to next multiple of 4 and compute surface dims
+  const int surfW = 4 * SORT_BS; // width == elements per block in sort.cu
+  const int padded_n = ((int)((n + 3) / 4) ) * 4; // pad to multiple of 4
+  const int surfH = (padded_n + surfW - 1) / surfW; // height == number of blocks (grid.x in sort)
+  size_t totalElems = (size_t)surfW * (size_t)surfH;
+
+  if (wrap::cuda::malloc2DSurfaceObject<unsigned int>(&idxKey_d, surfW, surfH) != cudaSuccess) {
+    printf("Failed allocating idxKey surface\n");
+    return;
+  }
+  if (wrap::cuda::malloc2DSurfaceObject<unsigned int>(&idxValue_d, surfW, surfH) != cudaSuccess) {
+    printf("Failed allocating idxValue surface\n");
+    return;
+  }
+
+  // no linear buffers: sorting will operate directly on surface objects
 
 /*The CUDPP library features highly optimizes implementations for radix sort
   and prefix sum. However for portability reasons, we implemented our own,
@@ -155,9 +172,12 @@ void CUDA_interface (
   cudaMemcpy(sample_d, sample, n*sizeof(ReconstructionSample), cudaMemcpyHostToDevice);
   cudaMemset(binCount_d, 0, (gridNumElems+1)*sizeof(unsigned int));
 
-  // Initialize padding to max integer value, so that when sorted,
-  // these elements get pushed to the end of the array.
-  cudaMemset(idxKey_d+n, 0xFF, (((n+3)&~(3))-n)*sizeof(unsigned int));
+  // Initialize surface padding to max integer so padded entries sort to the end.
+  unsigned int *initBuf = (unsigned int*)malloc(totalElems * sizeof(unsigned int));
+  for (size_t ii = 0; ii < totalElems; ++ii) initBuf[ii] = 0xFFFFFFFFu;
+  wrap::cuda::memcpy2DToSurfaceObject<unsigned int>(&idxKey_d, initBuf, surfW, surfH);
+  // idxValue doesn't need particular initial values; leave as-is.
+  free(initBuf);
 
   sortedSampleSoA_d.data = (float2*)(sortedSample_d);
   sortedSampleSoA_d.loc = (float4*)(sortedSample_d+2*(n+npad));
@@ -170,7 +190,8 @@ void CUDA_interface (
   dim3 block1 (BLOCKSIZE);
   dim3 grid1 ((n+BLOCKSIZE-1)/BLOCKSIZE);
 
-  binning_kernel<<<grid1, block1>>>(n, sample_d, idxKey_d, idxValue_d, binCount_d, params.binsize, gridNumElems);
+  // pass surface object handles (surf) to kernels
+  binning_kernel<<<grid1, block1>>>(n, sample_d, idxKey_d.surf, idxValue_d.surf, binCount_d, params.binsize, gridNumElems, surfW);
 
   /* STEP 2: Sort the index-value pair generate in the binning kernel */
 #if USE_CUDPP
@@ -192,7 +213,11 @@ void CUDA_interface (
   cudppSort(sortplan, idxKey_d, idxValue_d, int(precision), n);
   result = cudppDestroyPlan(sortplan);
 #else
-  sort(n, gridNumElems+1, idxKey_d, idxValue_d);
+  // Sort directly on the surface objects. Keep `n` unchanged (original
+  // implementation passes the original element count), but the surfaces are
+  // allocated with padding so kernels that read 4 elements at a time are safe.
+  sort(n, gridNumElems+1, idxKey_d, idxValue_d, surfW, surfH);
+
 #endif
 
   /* STEP 3: Reorder the input data, based on the sorted values from Step 2.
@@ -203,11 +228,11 @@ void CUDA_interface (
    * At the end of this step, we copy the start address and list of input elements
    * that will be computed on the CPU.
    */
-  reorder_kernel<<<grid1,block1>>>(n, idxValue_d, sample_d, sortedSampleSoA_d);
+  reorder_kernel<<<grid1,block1>>>(n, idxValue_d.surf, sample_d, sortedSampleSoA_d, surfW);
 
   pb_SwitchToTimer(timers, pb_TimerID_COPY);
 
-  cudaFree(idxKey_d);
+  wrap::cuda::freeSurfaceObject<unsigned int>(&idxKey_d);
   cudaFree(sample_d);
 
   pb_SwitchToTimer(timers, pb_TimerID_KERNEL);
@@ -241,9 +266,14 @@ void CUDA_interface (
 
   int* CPUbin;
   cudaMallocHost((void**)&CPUbin,CPUbin_size*sizeof(unsigned int));
-  cudaMemcpy(CPUbin, idxValue_d+cpuStart, CPUbin_size*sizeof(unsigned int), cudaMemcpyDeviceToHost);
+  // copy CPU bin indices from surface directly to host buffer via a temporary device linear buffer
+  // (reuse idxValue_lin not present anymore) -> copy surface to host via a host buffer
+  unsigned int* tmpHostBuf = (unsigned int*)malloc(totalElems * sizeof(unsigned int));
+  wrap::cuda::memcpy2DFromSurfaceObject<unsigned int>(tmpHostBuf, &idxValue_d, surfW, surfH);
+  cudaMemcpy(CPUbin, tmpHostBuf+cpuStart, CPUbin_size*sizeof(unsigned int), cudaMemcpyHostToHost);
+  free(tmpHostBuf);
 
-  cudaFree(idxValue_d);
+  wrap::cuda::freeSurfaceObject<unsigned int>(&idxValue_d);
 #if USE_CUDPP
   cudaFree(binCount_d);
 #endif
@@ -306,3 +336,5 @@ void CUDA_interface (
 
   return;
 }
+
+/* vim: set ts=2 sw=2 et ai: */
