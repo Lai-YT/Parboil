@@ -122,6 +122,23 @@ int main(int argc, char** argv) {
 	cudaMemcpyToSymbol(sh_zcnt_int, h_nzcnt,nzcnt_len*sizeof(int));
 	
     cudaThreadSynchronize();
+
+    // Create texture object
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.resType = cudaResourceTypeLinear;
+    resDesc.res.linear.devPtr = d_x_vector;
+    resDesc.res.linear.desc.f = cudaChannelFormatKindFloat;
+    resDesc.res.linear.desc.x = 32; // bits per channel
+    resDesc.res.linear.sizeInBytes = dim*sizeof(float);
+
+    cudaTextureDesc texDesc;
+    memset(&texDesc, 0, sizeof(texDesc));
+    texDesc.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t tex_x_vec = 0;
+    cudaCreateTextureObject(&tex_x_vec, &resDesc, &texDesc, NULL);
+
 	pb_SwitchToTimer(&timers, pb_TimerID_COMPUTE);
 	unsigned int grid;
 	unsigned int block;
@@ -136,7 +153,7 @@ int main(int argc, char** argv) {
 	for (int i= 0; i<50; i++)
 	spmv_jds<<<grid, block>>>(d_Ax_vector,
   				d_data,d_indices,d_perm,
-				d_x_vector,d_nzcnt,dim);
+				tex_x_vec,d_nzcnt,dim);
 							
     CUERR // check and clear any existing errors
 	
@@ -147,6 +164,8 @@ int main(int argc, char** argv) {
 	cudaMemcpy(h_Ax_vector, d_Ax_vector,dim*sizeof(float), cudaMemcpyDeviceToHost);	
 
 	cudaThreadSynchronize();
+
+    cudaDestroyTextureObject(tex_x_vec);
 
 	cudaFree(d_data);
     cudaFree(d_indices);

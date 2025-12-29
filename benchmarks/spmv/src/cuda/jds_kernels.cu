@@ -4,7 +4,7 @@
 
 __global__ void spmv_jds(float *dst_vector,
 						const float *d_data,const int *d_index, const int *d_perm,
-						const float *x_vec,const int *d_nzcnt,const int dim)
+						cudaTextureObject_t x_vec,const int *d_nzcnt,const int dim)
 {
 	int ix=blockIdx.x*blockDim.x+threadIdx.x;
 	int warp_id=ix>>WARP_BITS;
@@ -16,7 +16,7 @@ __global__ void spmv_jds(float *dst_vector,
 		int j=jds_ptr_int[0]+ix;  
 		float d = d_data[j]; 
 		int i = d_index[j];  
-		float t = x_vec[i];
+		float t = tex1Dfetch<float>(x_vec, i);
 		
 		if (bound>1)  //bound >=2
 		{
@@ -34,7 +34,7 @@ __global__ void spmv_jds(float *dst_vector,
 				j=jds_ptr_int[k]+ix;    
 				in = d_index[j]; 
 				//prefetch k-1
-				tn = x_vec[i];
+				tn = tex1Dfetch<float>(x_vec, i);
 				
 				//compute k-2
 				sum += d*t; 
@@ -47,7 +47,7 @@ __global__ void spmv_jds(float *dst_vector,
 		
 			//fetch last
 			dn = d_data[j];
-			tn = x_vec[i];
+			tn = tex1Dfetch<float>(x_vec, i);
 	
 			//compute last-1
 			sum += d*t; 
