@@ -21,7 +21,7 @@ def compare_floats(ref_list, cmp_list):
 	for (r, c) in zip(ref_list, cmp_list):
 		diff = abs(r - c)
 		if not (diff <= abstol or diff < 0.002 * abs(r)):
-			print r, c
+			print(r, c)
 			# Floats mismatch
 			return False
 
