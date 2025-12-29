@@ -22,6 +22,10 @@ uint2* d_FinalReduce;
 float *d_Output, *d_ReductionSum;
 cudaArray *d_Coors, *d_Sprms, *d_Wghts;
 
+cudaTextureObject_t texCoorsObj = 0;
+cudaTextureObject_t texSprmsObj = 0;
+cudaTextureObject_t texWghtsObj = 0;
+
 float4* Coors;
 float2* Sprms;
 
@@ -176,7 +180,8 @@ void RunKernel(int numIntegrals, struct pb_TimerSet *timers,
       dim3 block(BLOCK_SIZE, 1, 1);
 
       pb_SwitchToTimer( timers, pb_TimerID_KERNEL );
-      ComputeX <<< grid, block >>> (d_Block_Work, d_Output, StartBlock);
+      ComputeX <<< grid, block >>> (d_Block_Work, d_Output, StartBlock,
+                texCoorsObj, texSprmsObj, texWghtsObj);
       CUDA_ERRCK
       cudaThreadSynchronize();
       pb_SwitchToTimer( timers, pb_TimerID_COMPUTE );
@@ -219,14 +224,14 @@ void AllocateDataOnDevice(int d_output_mem, int d_work_mem,
   CUDA_ERRCK
   cudaMalloc((void**)&d_FinalReduce, final_mem);
   CUDA_ERRCK
-  cudaMallocArray(&d_Coors, &texCoors.channelDesc, 
-		  numCoors, 1);
+  cudaChannelFormatDesc descCoors = cudaCreateChannelDesc<float4>();
+  cudaMallocArray(&d_Coors, &descCoors, numCoors, 1);
   CUDA_ERRCK
-  cudaMallocArray(&d_Sprms, &texSprms.channelDesc, 
-		  numSprms, 1);
+  cudaChannelFormatDesc descSprms = cudaCreateChannelDesc<float2>();
+  cudaMallocArray(&d_Sprms, &descSprms, numSprms, 1);
   CUDA_ERRCK
-  cudaMallocArray(&d_Wghts, &texWghts.channelDesc, 
-		  1 << LOG_TABLE_WIDTH, 2);
+  cudaChannelFormatDesc descWghts = cudaCreateChannelDesc<float>();
+  cudaMallocArray(&d_Wghts, &descWghts, 1 << LOG_TABLE_WIDTH, 2);
   CUDA_ERRCK
   
   cudaMemcpy(d_Block_Work, Block_Work, d_work_mem, 
@@ -236,32 +241,49 @@ void AllocateDataOnDevice(int d_output_mem, int d_work_mem,
 	     cudaMemcpyHostToDevice);
   CUDA_ERRCK
 
-  cudaMemcpyToArray(d_Coors, 0, 0, (void*)Coors, 
-	            numCoors * sizeof(float4), 
-		    cudaMemcpyHostToDevice);
+  cudaMemcpyToArray(d_Coors, 0, 0, (void*)Coors, numCoors * sizeof(float4), cudaMemcpyHostToDevice);
   CUDA_ERRCK
-  cudaMemcpyToArray(d_Sprms, 0, 0, (void*)Sprms, 
-		    numSprms * sizeof(float2), 
-		    cudaMemcpyHostToDevice);
+  cudaMemcpyToArray(d_Sprms, 0, 0, (void*)Sprms, numSprms * sizeof(float2), cudaMemcpyHostToDevice);
   CUDA_ERRCK
-  cudaMemcpyToArray(d_Wghts, 0, 0, (void*)Wghts, 
-		    TABLESIZE * sizeof(float), 
-		    cudaMemcpyHostToDevice);
+  cudaMemcpyToArray(d_Wghts, 0, 0, (void*)Wghts, TABLESIZE * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_ERRCK
+  // Create texture objects for the arrays
+  cudaResourceDesc resDesc;
+  memset(&resDesc, 0, sizeof(resDesc));
+  resDesc.resType = cudaResourceTypeArray;
+
+  cudaTextureDesc texDesc;
+  memset(&texDesc, 0, sizeof(texDesc));
+  texDesc.addressMode[0] = cudaAddressModeClamp;
+  texDesc.addressMode[1] = cudaAddressModeClamp;
+  texDesc.filterMode = cudaFilterModePoint;
+  texDesc.readMode = cudaReadModeElementType;
+  texDesc.normalizedCoords = 0;
+
+  // Coords
+  resDesc.res.array.array = d_Coors;
+  cudaCreateTextureObject(&texCoorsObj, &resDesc, &texDesc, NULL);
   CUDA_ERRCK
 
-  texWghts.filterMode = cudaFilterModeLinear;
-  
-  cudaBindTextureToArray(texCoors, d_Coors, texCoors.channelDesc);
+  // Sprms
+  resDesc.res.array.array = d_Sprms;
+  cudaCreateTextureObject(&texSprmsObj, &resDesc, &texDesc, NULL);
   CUDA_ERRCK
-  cudaBindTextureToArray(texSprms, d_Sprms, texSprms.channelDesc);
-  CUDA_ERRCK
-  cudaBindTextureToArray(texWghts, d_Wghts, texWghts.channelDesc);
+
+  // Wghts: use linear filtering
+  texDesc.filterMode = cudaFilterModeLinear;
+  resDesc.res.array.array = d_Wghts;
+  cudaCreateTextureObject(&texWghtsObj, &resDesc, &texDesc, NULL);
   CUDA_ERRCK
 }
 
 void FreeAllData( struct pb_TimerSet *timers )
 {
   pb_SwitchToTimer( timers, pb_TimerID_COPY );
+  // Destroy texture objects
+  if (texCoorsObj) cudaDestroyTextureObject(texCoorsObj);
+  if (texSprmsObj) cudaDestroyTextureObject(texSprmsObj);
+  if (texWghtsObj) cudaDestroyTextureObject(texWghtsObj);
   cudaFree((void*)d_FinalReduce);
   CUDA_ERRCK
   cudaFree((void*)d_Block_Work);

@@ -13,7 +13,7 @@
 #define TABLE_HEIGHT (TABLESIZE >> LOG_TABLE_WIDTH)
 #define W_MAX_SIZE 10
 
-__global__ void ComputeX(uint4*, float*, int);
+__global__ void ComputeX(uint4*, float*, int, cudaTextureObject_t, cudaTextureObject_t, cudaTextureObject_t);
 
 __device__ float product1D(float, float, float, float, float);
 __device__ float dist2(float3, float3);
@@ -29,12 +29,13 @@ __device__ void GetOffsets(int, int&, int&, int&, int&);
 __device__ void GetNs(int, int, int, int, int, int&, int&, int&, int&);
 __device__ void KahanSum(float&, float, float&, float&, float&);
 
-texture<float4, 1, cudaReadModeElementType> texCoors;
-texture<float2, 1, cudaReadModeElementType> texSprms;
-texture<float , 1, cudaReadModeElementType> texWghts;
+// Using texture objects (created on host and passed into kernels)
 
 __global__ 
-void ComputeX(uint4* d_Work, float* d_Output, int Offset)
+void ComputeX(uint4* d_Work, float* d_Output, int Offset,
+              cudaTextureObject_t texCoorsObj,
+              cudaTextureObject_t texSprmsObj,
+              cudaTextureObject_t texWghtsObj)
 {
   __shared__ float Data[BLOCK_SIZE];
   __shared__ uint4 s_Work;
@@ -68,14 +69,14 @@ void ComputeX(uint4* d_Work, float* d_Output, int Offset)
       n3 += off3;
       n4 += off4;
       
-      float4 Atom1 = tex1D(texCoors, (float)atom1);
-      float4 Atom2 = tex1D(texCoors, (float)atom2);
-      float4 Atom3 = tex1D(texCoors, (float)atom3);
-      float4 Atom4 = tex1D(texCoors, (float)atom4);
-      float2 Param1 = tex1D(texSprms, (float)n1);
-      float2 Param2 = tex1D(texSprms, (float)n2);
-      float2 Param3 = tex1D(texSprms, (float)n3);
-      float2 Param4 = tex1D(texSprms, (float)n4);
+      float4 Atom1 = tex1Dfetch<float4>(texCoorsObj, atom1);
+      float4 Atom2 = tex1Dfetch<float4>(texCoorsObj, atom2);
+      float4 Atom3 = tex1Dfetch<float4>(texCoorsObj, atom3);
+      float4 Atom4 = tex1Dfetch<float4>(texCoorsObj, atom4);
+      float2 Param1 = tex1Dfetch<float2>(texSprmsObj, n1);
+      float2 Param2 = tex1Dfetch<float2>(texSprmsObj, n2);
+      float2 Param3 = tex1Dfetch<float2>(texSprmsObj, n3);
+      float2 Param4 = tex1Dfetch<float2>(texSprmsObj, n4);
       
       float R12 = dist2(Atom1, Atom2);
       float R34 = dist2(Atom3, Atom4);
