@@ -17,12 +17,14 @@ def read_record(f):
 	try:
 		(ix, flt) = words
 	except ValueError:
-		raise ValueError, "Malformed line in output file"
+		raise ValueError("Malformed line in output file")
 
 	return (int(ix), float(flt))
 
-def compare_record((ref_n, ref_f), (cmp_n, cmp_f)):
+def compare_record(xxx_todo_changeme, xxx_todo_changeme1):
 	# The first number should match exactly
+	(ref_n, ref_f) = xxx_todo_changeme
+	(cmp_n, cmp_f) = xxx_todo_changeme1
 	if ref_n != cmp_n: return False
 
 	# The second number should be equal with a tolerance of (1e-9 + 2%).
